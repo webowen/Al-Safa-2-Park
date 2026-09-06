@@ -1,0 +1,22 @@
+{
+  "name": "cesium-core-package",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "cesium:assets": "node scripts/copy-cesium-assets.mjs",
+    "dev": "npm run cesium:assets && vite --host 0.0.0.0",
+    "build": "npm run cesium:assets && vue-tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "cesium": "^1.142.0",
+    "vue": "^3.5.38",
+    "pinia": "^3.0.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.7",
+    "typescript": "^6.0.3",
+    "vite": "^7.2.7",
+    "vue-tsc": "^3.3.4"
+  }
+}

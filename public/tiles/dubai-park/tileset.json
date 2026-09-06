@@ -1,0 +1,29 @@
+{
+  "asset": {
+    "version": "1.1"
+  },
+  "geometricError": 1024,
+  "root": {
+    "boundingVolume": {
+      "box": [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "geometricError": 1024,
+    "content": {
+      "uri": "placeholder.b3dm"
+    },
+    "children": []
+  }
+}
