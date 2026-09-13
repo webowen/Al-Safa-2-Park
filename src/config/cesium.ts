@@ -4,8 +4,9 @@ export const cesiumConfig = {
   useRemoteTerrain: import.meta.env.VITE_USE_REMOTE_TERRAIN !== "false",
   park: {
     center: {
-      lng: 55.2217211268577,
-      lat: 25.1557512418444,
+      // Authoritative center derived from the four park corner coordinates.
+      lng: (55.220726298749305 + 55.22265459992857) / 2,
+      lat: (25.154842832411614 + 25.156659648287633) / 2,
       height: 0,
     },
     bounds: {
@@ -17,8 +18,9 @@ export const cesiumConfig = {
     startupCamera: {
       heading: 20,
       pitch: -55,
-      range: 420,
+      // Start on the park itself instead of showing a wide regional view.
+      range: 180,
     },
-    tilesetAssetId: 5444355,
+    tilesetAssetId: 5835399,
   },
 };

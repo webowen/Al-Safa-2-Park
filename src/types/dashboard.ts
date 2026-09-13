@@ -111,4 +111,5 @@ export interface DashboardSceneController {
   setClockAnimating: (isAnimating: boolean) => void;
   setRain: (enabled: boolean) => void;
   onSimulationTimeChange: (callback: (hour: number) => void) => () => void;
+  onPoiSelect: (callback: (poi: { name: string; label: string }) => void) => () => void;
 }

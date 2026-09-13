@@ -17,7 +17,7 @@
             <MetricCard
               v-for="item in modeConfig.primary.metrics"
               :key="item.label"
-              :item="item"
+              :item="liveMetric(item)"
               @select="focus(item.focusId)"
             />
           </div>
@@ -37,7 +37,7 @@
             <SystemStatusRow
               v-for="item in modeConfig.primary.systems"
               :key="item.label"
-              :item="item"
+              :item="liveSystem(item)"
             />
           </div>
 
@@ -52,7 +52,7 @@
             <AssetHealthCard
               v-for="item in modeConfig.primary.assets"
               :key="item.label"
-              :item="item"
+              :item="liveAsset(item)"
               @select="focus(item.focusId)"
             />
           </div>
@@ -82,6 +82,22 @@ const store = useDashboardStore();
 const collapsed = ref(false);
 const modeConfig = computed(() => getDashboardModeConfig(store.activeMode));
 const sectionTitle = computed(() => (store.activeMode === "events" ? "Live Event Operations" : "Live Operations"));
+const wobble = (seed: string, amount: number) => Math.round((Math.sin(store.liveTick * 1.7 + seed.length * 3.1) * 0.5 + 0.5) * amount);
+function liveMetric(item: any) {
+  if (item.label === "Temperature") return { ...item, value: `${27 + wobble(item.label, 5)}°C` };
+  if (item.label.includes("Visitors") || item.label.includes("Attendance")) return { ...item, value: (390 + wobble(item.label, 100)).toLocaleString() };
+  if (item.label === "Open Issues" || item.label === "Open Tasks") return { ...item, value: String(2 + wobble(item.label, 3)) };
+  return item;
+}
+function liveSystem(item: any) {
+  if (item.label.includes("Lighting")) return { ...item, value: `${96 + wobble(item.label, 4)}%` };
+  return item;
+}
+function liveAsset(item: any) {
+  if (!item.value.includes("%")) return item;
+  const progress = Math.max(1, Math.min(99, item.progress + wobble(item.label, 3) - 1));
+  return { ...item, value: `${progress}%`, progress, stats: item.stats.map((stat: any, index: number) => index === 0 ? { ...stat, value: `${progress}%` } : stat) };
+}
 
 function focus(focusId?: string) {
   if (!focusId) return;
@@ -283,19 +299,17 @@ function focus(focusId?: string) {
 
 .panel-fade-enter-active,
 .panel-fade-leave-active {
-  transition: opacity .28s ease, transform .28s ease, filter .28s ease;
+  transition: opacity .28s ease, transform .28s ease;
 }
 
 .panel-fade-enter-from {
   opacity: 0;
   transform: translateY(8px);
-  filter: blur(2px);
 }
 
 .panel-fade-leave-to {
   opacity: 0;
   transform: translateY(-6px);
-  filter: blur(2px);
 }
 
 .heading-fade-enter-active,

@@ -22,8 +22,8 @@
 <style scoped>
 .dashboard-hud {
   --side-top: 126px;
-  --left-side-bottom: 176px;
-  --right-side-bottom: 214px;
+  --left-side-bottom: 190px;
+  --right-side-bottom: 248px;
   --bottom-rail-gap: 14px;
 
   position: absolute;
@@ -43,12 +43,20 @@
 .dashboard-hud > .left-panel,
 .dashboard-hud > .right-panel {
   top: var(--side-top);
-  height: calc(100svh - var(--side-top) - var(--left-side-bottom));
   min-height: 0;
   overflow: hidden;
   pointer-events: auto;
   width: clamp(354px, 20vw, 404px);
   box-sizing: border-box;
+  contain: layout paint;
+}
+
+.dashboard-hud > .right-panel {
+  contain: layout paint;
+}
+
+.dashboard-hud > .left-panel {
+  height: calc(100svh - var(--side-top) - var(--left-side-bottom));
 }
 
 .left-panel {
@@ -57,6 +65,9 @@
 
 .right-panel {
   right: 28px;
+}
+
+.dashboard-hud > .right-panel {
   height: calc(100svh - var(--side-top) - var(--right-side-bottom));
 }
 
@@ -89,6 +100,7 @@
 
 .bottom-right {
   justify-items: end;
+  align-content: end;
 }
 
 .layer-panel,
@@ -127,27 +139,34 @@
 @keyframes hud-in {
   from {
     opacity: 0;
-    filter: blur(3px);
+    transform: translateY(6px);
   }
 
   to {
     opacity: 1;
-    filter: blur(0);
+    transform: translateY(0);
   }
 }
 
 @media (max-width: 1250px) {
   .dashboard-hud {
     --side-top: 104px;
-    --left-side-bottom: 164px;
-    --right-side-bottom: 200px;
+    --left-side-bottom: 178px;
+    --right-side-bottom: 238px;
     --bottom-rail-gap: 10px;
   }
 
   .dashboard-hud > .left-panel,
   .dashboard-hud > .right-panel {
     width: 320px;
+  }
+
+  .dashboard-hud > .left-panel {
     height: calc(100svh - var(--side-top) - var(--left-side-bottom));
+  }
+
+  .dashboard-hud > .right-panel {
+    height: calc(100svh - var(--side-top) - var(--right-side-bottom));
   }
 
   .left-panel {
@@ -173,14 +192,21 @@
 @media (max-width: 900px) {
   .dashboard-hud {
     --side-top: 100px;
-    --left-side-bottom: 144px;
-    --right-side-bottom: 180px;
+    --left-side-bottom: 158px;
+    --right-side-bottom: 214px;
   }
 
   .dashboard-hud > .left-panel,
   .dashboard-hud > .right-panel {
     width: min(300px, calc(50vw - 24px));
+  }
+
+  .dashboard-hud > .left-panel {
     height: calc(100svh - var(--side-top) - var(--left-side-bottom));
+  }
+
+  .dashboard-hud > .right-panel {
+    height: calc(100svh - var(--side-top) - var(--right-side-bottom));
   }
 
   .bottom-rail {
@@ -263,7 +289,7 @@
   .dashboard-hud {
     --side-top: 112px;
     --left-side-bottom: 228px;
-    --right-side-bottom: 228px;
+    --right-side-bottom: 260px;
   }
 }
 

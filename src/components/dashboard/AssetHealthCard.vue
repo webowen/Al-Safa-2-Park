@@ -50,13 +50,14 @@ const emit = defineEmits<{ select: [] }>();
   min-height: 126px;
   padding: 12px 13px;
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-rows: 34px minmax(0, 1fr);
+  gap: 5px;
   background: rgba(255, 255, 255, .72);
   border: 1px solid rgba(7, 38, 87, .08);
   border-radius: 8px;
   box-sizing: border-box;
   cursor: pointer;
+  overflow: hidden;
   transition: transform .18s, box-shadow .18s, border-color .18s;
 }
 
@@ -120,8 +121,8 @@ const emit = defineEmits<{ select: [] }>();
 
 .asset-body {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 9px;
   align-items: center;
   min-height: 0;
 }
@@ -130,7 +131,7 @@ const emit = defineEmits<{ select: [] }>();
   position: relative;
   display: grid;
   place-items: center;
-  width: 72px;
+  width: 60px;
   aspect-ratio: 1;
   color: currentColor;
 }
@@ -165,8 +166,8 @@ const emit = defineEmits<{ select: [] }>();
 
 .asset-summary {
   display: grid;
-  grid-template-rows: 18px repeat(3, 16px);
-  gap: 3px;
+  grid-template-rows: 15px repeat(3, 13px);
+  gap: 1px;
   min-width: 0;
 }
 
@@ -176,7 +177,7 @@ const emit = defineEmits<{ select: [] }>();
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  line-height: 18px;
+  line-height: 15px;
   color: #51647e;
 }
 
@@ -186,13 +187,13 @@ const emit = defineEmits<{ select: [] }>();
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
-  font-size: 10.5px;
+  font-size: 10px;
   line-height: 1.2;
   color: #5b6d85;
 }
 
 .asset-stat strong {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 

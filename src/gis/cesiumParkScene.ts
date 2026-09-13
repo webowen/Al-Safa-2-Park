@@ -1,32 +1,34 @@
 import {
-  ArcGisMapServerImageryProvider,
   BoxEmitter,
   BoundingSphere,
-  CameraEventType,
   Cartesian2,
   Cartesian3,
   Cesium3DTileset,
   ClockRange,
   Color,
   createWorldTerrainAsync,
+  DynamicAtmosphereLightingType,
   EasingFunction,
   EllipsoidTerrainProvider,
   HeadingPitchRange,
+  HeightReference,
   Ion,
   JulianDate,
   Math as CesiumMath,
   Matrix4,
   ParticleSystem,
+  Rectangle,
+  ShadowMode,
+  TileMapServiceImageryProvider,
   type ImageryLayer,
   SceneMode,
-  ScreenSpaceEventHandler,
-  ScreenSpaceEventType,
-  ShadowMode,
   Transforms,
   type Entity,
   type TerrainProvider,
   UrlTemplateImageryProvider,
   Viewer,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
 } from "cesium";
 
 import { cesiumConfig } from "../config/cesium";
@@ -53,10 +55,8 @@ const MODE_DEFAULT_FOCUS: Record<DashboardModeId, string> = {
   maintenance: "asset-core",
 };
 
-const PARK_CENTER_LNG = 55.2217211268577;
-const PARK_CENTER_LAT = 25.1557512418444;
 const PARK_MIN_ZOOM = 60;
-const PARK_MAX_ZOOM = 1100;
+const PARK_MAX_ZOOM = 5000;
 
 function parkCartesian(lng: number, lat: number, height: number) {
   return Cartesian3.fromDegrees(lng, lat, height);
@@ -67,17 +67,6 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   let terrainProvider: TerrainProvider = new EllipsoidTerrainProvider();
 
   if (cesiumConfig.ionToken) Ion.defaultAccessToken = cesiumConfig.ionToken;
-
-  if (cesiumConfig.ionToken && cesiumConfig.useRemoteTerrain) {
-    try {
-      terrainProvider = await createWorldTerrainAsync({
-        requestVertexNormals: true,
-        requestWaterMask: true,
-      });
-    } catch (ionError) {
-      console.warn("Cesium World Terrain could not be loaded; using ellipsoid terrain.", ionError);
-    }
-  }
 
   const viewer = new Viewer(container, {
     animation: false,
@@ -92,13 +81,17 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     selectionIndicator: false,
     timeline: false,
     terrainProvider,
+    // Daylight analysis must update the shadow map as the clock changes.
     shadows: true,
-    terrainShadows: ShadowMode.RECEIVE_ONLY,
     targetFrameRate: 45,
     useBrowserRecommendedResolution: true,
-    scene3DOnly: true,
+    // The dashboard exposes a real 2D/3D toggle, so do not disable 2D
+    // geometry at Viewer construction time.
+    scene3DOnly: false,
     orderIndependentTranslucency: false,
-    requestRenderMode: false,
+    // The scene is static most of the time. Render on demand so the browser
+    // does not spend a full frame budget while the dashboard is idle.
+    requestRenderMode: true,
     maximumRenderTimeChange: 0.5,
     msaaSamples: 1,
     contextOptions: {
@@ -110,15 +103,42 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     },
   });
 
-  const idleResolutionScale = 1;
-  const interactionResolutionScale = 0.9;
-  viewer.resolutionScale = idleResolutionScale;
+  const idleGlobeScreenSpaceError = 2;
+  const idleTilesetScreenSpaceError = 10;
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const isLowPowerDevice = (nav.deviceMemory !== undefined && nav.deviceMemory <= 4)
+    || (navigator.hardwareConcurrency !== undefined && navigator.hardwareConcurrency <= 4);
+  const performanceProfile = isLowPowerDevice
+    ? { resolutionScale: 0.82, globeSse: 3.5, tilesetSse: 16, rainRate: 420 }
+    : { resolutionScale: 1, globeSse: idleGlobeScreenSpaceError, tilesetSse: idleTilesetScreenSpaceError, rainRate: 850 };
+  let parkTileset: Cesium3DTileset | null = null;
+  let imageryLayer: ImageryLayer | undefined;
+  viewer.resolutionScale = performanceProfile.resolutionScale;
   viewer.scene.backgroundColor = Color.fromCssColorString("#dfeef8");
   viewer.scene.globe.baseColor = Color.fromCssColorString("#7dc0d9");
   viewer.scene.globe.depthTestAgainstTerrain = !(terrainProvider instanceof EllipsoidTerrainProvider);
-  viewer.scene.globe.maximumScreenSpaceError = 2;
+  viewer.scene.globe.maximumScreenSpaceError = performanceProfile.globeSse;
+  // Keep Cesium's celestial lighting tied to `viewer.clock.currentTime`.
+  // Without this, changing the daylight slider only updates application data
+  // while the globe/atmosphere keep using a fixed, unlit appearance.
   viewer.scene.globe.enableLighting = true;
+  viewer.scene.globe.dynamicAtmosphereLighting = true;
+  viewer.scene.globe.dynamicAtmosphereLightingFromSun = true;
   viewer.scene.globe.shadows = ShadowMode.RECEIVE_ONLY;
+  viewer.scene.globe.showGroundAtmosphere = true;
+  viewer.scene.atmosphere.dynamicLighting = DynamicAtmosphereLightingType.SUNLIGHT;
+  viewer.scene.light.intensity = 2.0;
+  if (viewer.scene.skyAtmosphere) {
+    viewer.scene.skyAtmosphere.show = true;
+    // Per-fragment scattering is a little more expensive, but it keeps the
+    // near-ground view responsive to the sun at park scale instead of looking
+    // like one static blue backdrop at every hour.
+    viewer.scene.skyAtmosphere.perFragmentAtmosphere = true;
+  }
+  if (viewer.scene.sun) {
+    viewer.scene.sun.show = true;
+    viewer.scene.sun.glowFactor = 1.35;
+  }
   viewer.scene.fog.enabled = false;
   viewer.scene.highDynamicRange = false;
   viewer.scene.postProcessStages.fxaa.enabled = false;
@@ -131,10 +151,23 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   viewer.scene.screenSpaceCameraController.enableRotate = true;
   viewer.scene.screenSpaceCameraController.enableTilt = true;
   viewer.scene.screenSpaceCameraController.enableZoom = true;
-  viewer.scene.screenSpaceCameraController.translateEventTypes = [];
-  viewer.scene.screenSpaceCameraController.rotateEventTypes = CameraEventType.RIGHT_DRAG;
-  viewer.scene.screenSpaceCameraController.tiltEventTypes = CameraEventType.MIDDLE_DRAG;
-  viewer.scene.screenSpaceCameraController.zoomEventTypes = [CameraEventType.WHEEL, CameraEventType.PINCH];
+
+  // Do not block first paint on remote terrain. Start with the lightweight
+  // ellipsoid and upgrade in the background when the network/token allows it.
+  if (cesiumConfig.ionToken && cesiumConfig.useRemoteTerrain) {
+    void createWorldTerrainAsync({
+      requestVertexNormals: false,
+      requestWaterMask: false,
+    }).then((remoteTerrain) => {
+      if (viewer.isDestroyed()) return;
+      terrainProvider = remoteTerrain;
+      viewer.terrainProvider = remoteTerrain;
+      viewer.scene.globe.depthTestAgainstTerrain = true;
+      viewer.scene.requestRender();
+    }).catch((ionError) => {
+      console.warn("Cesium World Terrain unavailable; keeping ellipsoid terrain.", ionError);
+    });
+  }
 
   const simulationDayStart = getDubaiDayStart(new Date());
   const simulationDayStartJulian = JulianDate.fromDate(simulationDayStart);
@@ -144,6 +177,51 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   viewer.clock.clockRange = ClockRange.LOOP_STOP;
   viewer.clock.multiplier = 120;
   viewer.clock.shouldAnimate = false;
+
+  // Keep the sky, atmosphere and ground tone in the same simulation-time
+  // pipeline as the sun/light direction. Cesium's sun position is derived
+  // from clock.currentTime during render; these additional tone adjustments
+  // make the transition visible at park-scale camera distances as well.
+  const daySkyColor = Color.fromCssColorString("#dfeef8");
+  const twilightSkyColor = Color.fromCssColorString("#d88963");
+  const nightSkyColor = Color.fromCssColorString("#071426");
+  const environmentColorScratch = new Color();
+  function applyEnvironmentForTime(hour: number) {
+    const normalizedHour = ((hour % 24) + 24) % 24;
+    const sunElevation = Math.sin(((normalizedHour - 6) / 12) * Math.PI);
+    // Keep a short twilight band around sunrise/sunset instead of snapping
+    // directly from blue daylight to a black sky.
+    const daylight = CesiumMath.clamp((sunElevation + 0.12) / 1.12, 0, 1);
+    const twilight = CesiumMath.clamp(1 - Math.abs(sunElevation) / 0.32, 0, 1);
+    const nightMix = 1 - daylight;
+    let skyColor: Color;
+    if (twilight > 0) {
+      skyColor = Color.lerp(nightSkyColor, twilightSkyColor, twilight, environmentColorScratch);
+      skyColor = Color.lerp(skyColor, daySkyColor, daylight, environmentColorScratch);
+    } else {
+      skyColor = Color.lerp(nightSkyColor, daySkyColor, daylight, environmentColorScratch);
+    }
+    viewer.scene.backgroundColor = skyColor;
+    viewer.scene.atmosphere.brightnessShift = -0.58 + daylight * 0.58;
+    viewer.scene.atmosphere.lightIntensity = 2.5 + daylight * 7.5;
+    if (viewer.scene.skyAtmosphere) {
+      viewer.scene.skyAtmosphere.brightnessShift = -0.7 + daylight * 0.7;
+      viewer.scene.skyAtmosphere.saturationShift = 0.12 * nightMix;
+      viewer.scene.skyAtmosphere.atmosphereLightIntensity = 18 + daylight * 32;
+    }
+    if (imageryLayer) {
+      imageryLayer.brightness = 0.42 + daylight * 0.58;
+      imageryLayer.contrast = 0.82 + daylight * 0.18;
+      imageryLayer.saturation = 0.72 + daylight * 0.28;
+    }
+    if (viewer.scene.sun) {
+      // A stronger glow around low solar elevations sells sunrise/sunset while
+      // preserving a restrained midday sun.
+      viewer.scene.sun.glowFactor = 1.1 + twilight * 0.65;
+    }
+    viewer.scene.requestRender();
+  }
+  applyEnvironmentForTime(14);
 
   viewer.camera.lookAt(
     Cartesian3.fromDegrees(park.center.lng, park.center.lat, 80),
@@ -156,14 +234,13 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   viewer.camera.lookAtTransform(Matrix4.IDENTITY);
   viewer.scene.requestRender();
 
-  viewer.camera.moveStart.addEventListener(() => {
-    viewer.resolutionScale = interactionResolutionScale;
-  });
-
   viewer.camera.moveEnd.addEventListener(() => {
     if (!viewer.isDestroyed()) {
-      viewer.resolutionScale = idleResolutionScale;
-      clampCameraToPark();
+      viewer.resolutionScale = performanceProfile.resolutionScale;
+      viewer.scene.globe.maximumScreenSpaceError = performanceProfile.globeSse;
+      if (parkTileset) {
+        parkTileset.maximumScreenSpaceError = performanceProfile.tilesetSse;
+      }
       viewer.scene.requestRender();
     }
   });
@@ -174,16 +251,10 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   });
   resizeObserver.observe(container);
 
-  let imageryLayer: ImageryLayer;
   try {
-    const esriImagery = await ArcGisMapServerImageryProvider.fromUrl(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
-      { enablePickFeatures: false },
-    );
-    imageryLayer = viewer.imageryLayers.addImageryProvider(esriImagery);
-    imageryLayer.alpha = 0.95;
-  } catch (error) {
-    console.warn("Esri imagery metadata could not be loaded; using direct tiles.", error);
+    // Use the direct tile endpoint first. The ArcGIS metadata endpoint can
+    // resolve successfully while individual imagery tiles are unavailable,
+    // which leaves Cesium rendering a black globe with no visible error.
     imageryLayer = viewer.imageryLayers.addImageryProvider(
       new UrlTemplateImageryProvider({
         url: ESRI_IMAGERY_URL,
@@ -192,8 +263,18 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
         credit: "Esri World Imagery",
       }),
     );
-    imageryLayer.alpha = 0.9;
+    imageryLayer.alpha = 0.95;
+  } catch (error) {
+    console.warn("Esri imagery could not be loaded; using bundled Cesium imagery.", error);
+    const localImagery = await TileMapServiceImageryProvider.fromUrl(
+      "/cesium/Assets/Textures/NaturalEarthII",
+    );
+    imageryLayer = viewer.imageryLayers.addImageryProvider(localImagery);
   }
+  // The imagery layer is created after the initial clock setup. Re-apply the
+  // current hour so the first rendered frame already has the correct day/night
+  // tone instead of waiting for the user to move the slider.
+  applyEnvironmentForTime(14);
 
   const modeEntities: Record<DashboardModeId, Entity[]> = {
     daily: [],
@@ -288,14 +369,15 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
       mode,
       viewer.entities.add({
         name,
-        position: parkCartesian(lng, lat, 15),
+        position: parkCartesian(lng, lat, 0),
         point: {
           pixelSize: 13,
           color: Color.fromCssColorString(color),
           outlineColor: Color.WHITE,
           outlineWidth: 3,
+          heightReference: HeightReference.CLAMP_TO_3D_TILE,
         },
-        label: markerLabel(text),
+        label: { ...markerLabel(text), heightReference: HeightReference.CLAMP_TO_3D_TILE },
       }),
     );
   }
@@ -305,14 +387,15 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
       mode,
       viewer.entities.add({
         name,
-        position: parkCartesian(lng, lat, 12),
+        position: parkCartesian(lng, lat, 0),
         point: {
           pixelSize: 14,
           color: Color.fromCssColorString(color),
           outlineColor: Color.WHITE,
           outlineWidth: 3,
+          heightReference: HeightReference.CLAMP_TO_3D_TILE,
         },
-        label: bubbleLabel(labelText, "#102e5e"),
+        label: { ...bubbleLabel(labelText, "#102e5e"), heightReference: HeightReference.CLAMP_TO_3D_TILE },
       }),
     );
   }
@@ -358,29 +441,6 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
         },
       }),
     );
-  }
-
-  function clampCameraToPark() {
-    const cartographic = viewer.camera.positionCartographic;
-    const lon = CesiumMath.clamp(
-      CesiumMath.toDegrees(cartographic.longitude),
-      55.220726298749305,
-      55.22265459992857,
-    );
-    const lat = CesiumMath.clamp(
-      CesiumMath.toDegrees(cartographic.latitude),
-      25.154842832411614,
-      25.156659648287633,
-    );
-    const height = CesiumMath.clamp(cartographic.height, 40, 900);
-    viewer.camera.setView({
-      destination: Cartesian3.fromDegrees(lon, lat, height),
-      orientation: {
-        heading: viewer.camera.heading,
-        pitch: CesiumMath.clamp(viewer.camera.pitch, CesiumMath.toRadians(-78), CesiumMath.toRadians(-35)),
-        roll: 0,
-      },
-    });
   }
 
   function addDailyModeGeometry() {
@@ -453,66 +513,29 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   addEventModeGeometry();
   addMaintenanceModeGeometry();
 
-  const panHandler = new ScreenSpaceEventHandler(viewer.canvas);
-  const panDelta = new Cartesian3();
-  let panAnchor: Cartesian3 | undefined;
-
-  const pickPanSurface = (position: Cartesian2) => {
-    const ray = viewer.camera.getPickRay(position);
-    return (
-      (ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined) ??
-      viewer.camera.pickEllipsoid(position, viewer.scene.globe.ellipsoid)
-    );
-  };
-
-  panHandler.setInputAction((movement: { position: Cartesian2 }) => {
-    panAnchor = pickPanSurface(movement.position);
-    viewer.scene.screenSpaceCameraController.enableRotate = false;
-    viewer.canvas.style.cursor = panAnchor ? "grabbing" : "default";
-  }, ScreenSpaceEventType.LEFT_DOWN);
-
-  panHandler.setInputAction((movement: { endPosition: Cartesian2 }) => {
-    if (!panAnchor) return;
-
-    const groundPosition = pickPanSurface(movement.endPosition);
-    if (!groundPosition) return;
-
-    Cartesian3.subtract(panAnchor, groundPosition, panDelta);
-    Cartesian3.add(viewer.camera.position, panDelta, viewer.camera.position);
-    panAnchor = pickPanSurface(movement.endPosition);
-  }, ScreenSpaceEventType.MOUSE_MOVE);
-
-  const endPan = () => {
-    panAnchor = undefined;
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.canvas.style.cursor = "grab";
-  };
-  panHandler.setInputAction(endPan, ScreenSpaceEventType.LEFT_UP);
-  viewer.canvas.style.cursor = "grab";
-
   if (park.tilesetAssetId) {
     try {
       const tileset = await Cesium3DTileset.fromIonAssetId(park.tilesetAssetId, {
-        maximumScreenSpaceError: 8,
+        maximumScreenSpaceError: performanceProfile.tilesetSse,
         show: true,
         skipLevelOfDetail: true,
-        preferLeaves: true,
-        loadSiblings: true,
+        preferLeaves: false,
+        preloadFlightDestinations: false,
+        loadSiblings: false,
       });
 
       viewer.scene.primitives.add(tileset);
-      viewer.scene.screenSpaceCameraController.maximumZoomDistance = Math.min(
-        Math.max(park.startupCamera.range * 2.4, tileset.boundingSphere.radius * 1.8),
-        PARK_MAX_ZOOM,
-      );
-      viewer.flyTo(tileset, {
-        duration: 2.2,
-        offset: {
-          heading: CesiumMath.toRadians(park.startupCamera.heading),
-          pitch: CesiumMath.toRadians(park.startupCamera.pitch),
-          range: Math.max(park.startupCamera.range, tileset.boundingSphere.radius * 2.8),
-        },
-      });
+      parkTileset = tileset;
+      tileset.shadows = ShadowMode.ENABLED;
+      viewer.scene.screenSpaceCameraController.maximumZoomDistance = PARK_MAX_ZOOM;
+      // Do not call viewer.flyTo(tileset) here. The tileset's own bounding
+      // volume is not the park's geographic extent and would override the
+      // configured park-centered camera, often placing the view inside the
+      // model. Keep the camera anchored to the four-corner park coordinates.
+      // Never derive the camera target from the tileset bounding sphere. Ion
+      // assets can include surrounding context and their box center may sit
+      // outside the park's authoritative four corners. The configured park
+      // center remains the sole camera/focus anchor.
     } catch (error) {
       console.warn("Dubai park tiles not ready, continuing with terrain/globe view.", error);
     }
@@ -521,9 +544,21 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   }
 
   let currentMode: DashboardModeId = "daily";
+  let modeFocusTimer: number | undefined;
   let currentLayer: MapLayerId = "base";
   let currentViewMode: DashboardSceneView = "3D";
+  let pendingViewModeFocus: DashboardSceneView | null = null;
+  let pendingFocusId: string | null = null;
   const simulationTimeCallbacks = new Set<(hour: number) => void>();
+  const poiCallbacks = new Set<(poi: { name: string; label: string }) => void>();
+  const poiHandler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+  poiHandler.setInputAction((movement: { position: Cartesian2 }) => {
+    const picked = viewer.scene.pick(movement.position) as { id?: Entity } | undefined;
+    const entity = picked?.id;
+    if (!entity?.point) return;
+    const label = entity.label?.text?.getValue(viewer.clock.currentTime) ?? entity.name ?? "POI";
+    poiCallbacks.forEach((callback) => callback({ name: entity.name ?? "Park device", label }));
+  }, ScreenSpaceEventType.LEFT_CLICK);
 
   function setVisibility(mode: DashboardModeId) {
     (Object.keys(modeEntities) as DashboardModeId[]).forEach((key) => {
@@ -533,10 +568,31 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     });
   }
 
-  function flyToFocus(focusId: string) {
+  function flyToFocus(focusId: string, duration = 0.85) {
+    if (viewer.scene.mode === SceneMode.MORPHING) {
+      pendingFocusId = focusId;
+      return;
+    }
     const target = focusTargets[focusId] ?? focusTargets[MODE_DEFAULT_FOCUS[currentMode]];
+    viewer.camera.cancelFlight();
+    if (viewer.scene.mode === SceneMode.SCENE2D) {
+      // Bounding-sphere offsets are perspective-oriented and can produce an
+      // unexpected zoom/orientation in 2D. Set the authoritative park extent
+      // directly after the projection morph, avoiding a second 2D flight that
+      // can inherit an enormous world-scale frustum.
+      viewer.camera.setView({
+        destination: Rectangle.fromDegrees(
+          park.bounds.west,
+          park.bounds.south,
+          park.bounds.east,
+          park.bounds.north,
+        ),
+      });
+      viewer.scene.requestRender();
+      return;
+    }
     viewer.camera.flyToBoundingSphere(new BoundingSphere(target.center, target.radius), {
-      duration: 0.85,
+      duration,
       easingFunction: EasingFunction.CUBIC_IN_OUT,
       offset: new HeadingPitchRange(target.heading, target.pitch, target.range),
     });
@@ -545,7 +601,14 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   function applyMode(mode: DashboardModeId) {
     currentMode = mode;
     setVisibility(mode);
-    flyToFocus(MODE_DEFAULT_FOCUS[mode]);
+    // Let Vue commit the HUD state first, then start the camera flight on the
+    // next task. This prevents panel remounts and Cesium animation from
+    // competing for the same frame.
+    if (modeFocusTimer !== undefined) window.clearTimeout(modeFocusTimer);
+    modeFocusTimer = window.setTimeout(() => {
+      modeFocusTimer = undefined;
+      flyToFocus(MODE_DEFAULT_FOCUS[mode]);
+    }, 120);
     viewer.scene.requestRender();
   }
 
@@ -557,22 +620,50 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
       utilities: { alpha: 0.84, baseColor: "#d8efe1" },
     };
     const layerStyle = layerStyles[layer];
-    imageryLayer.alpha = layerStyle.alpha;
+    if (imageryLayer) imageryLayer.alpha = layerStyle.alpha;
     viewer.scene.globe.baseColor = Color.fromCssColorString(layerStyle.baseColor);
     viewer.scene.requestRender();
   }
 
   function setViewMode(mode: DashboardSceneView) {
     currentViewMode = mode;
-    if (mode === "2D") {
-      if (viewer.scene.mode !== SceneMode.SCENE2D) {
+    pendingViewModeFocus = mode;
+    pendingFocusId = MODE_DEFAULT_FOCUS[currentMode];
+    viewer.camera.cancelFlight();
+    // A second click while morphing should not leave the transitioner and
+    // camera fighting each other. Finish the previous transition first, then
+    // start the requested one and focus the park from morphComplete.
+    if (viewer.scene.mode === SceneMode.MORPHING) {
+      viewer.scene.completeMorph();
+    }
+    const targetSceneMode = mode === "2D" ? SceneMode.SCENE2D : SceneMode.SCENE3D;
+    if (viewer.scene.mode !== targetSceneMode) {
+      if (mode === "2D") {
         viewer.scene.morphTo2D(0.8);
+      } else {
+        viewer.scene.morphTo3D(0.8);
       }
-    } else if (viewer.scene.mode !== SceneMode.SCENE3D) {
-      viewer.scene.morphTo3D(0.8);
+    } else {
+      pendingViewModeFocus = null;
+      pendingFocusId = null;
     }
     viewer.scene.requestRender();
   }
+
+  const restoreParkFocusAfterMorph = () => {
+    const completedViewMode: DashboardSceneView = viewer.scene.mode === SceneMode.SCENE2D ? "2D" : "3D";
+    if (pendingViewModeFocus !== null && completedViewMode !== pendingViewModeFocus) return;
+    const focusId = pendingFocusId ?? MODE_DEFAULT_FOCUS[currentMode];
+    pendingViewModeFocus = null;
+    pendingFocusId = null;
+    // Defer one frame so Cesium has committed the new map projection before
+    // calculating the destination. This prevents the old frustum from
+    // contaminating the first camera flight after a morph.
+    window.requestAnimationFrame(() => {
+      if (!viewer.isDestroyed()) flyToFocus(focusId, 0.65);
+    });
+  };
+  viewer.scene.morphComplete.addEventListener(restoreParkFocusAfterMorph);
 
   function toggleViewMode() {
     setViewMode(currentViewMode === "3D" ? "2D" : "3D");
@@ -584,6 +675,19 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
 
   function resetNorth() {
     const target = focusTargets[MODE_DEFAULT_FOCUS[currentMode]];
+    viewer.camera.cancelFlight();
+    if (viewer.scene.mode === SceneMode.SCENE2D) {
+      viewer.camera.setView({
+        destination: Rectangle.fromDegrees(
+          park.bounds.west,
+          park.bounds.south,
+          park.bounds.east,
+          park.bounds.north,
+        ),
+      });
+      viewer.scene.requestRender();
+      return;
+    }
     viewer.camera.flyToBoundingSphere(new BoundingSphere(target.center, target.radius), {
       duration: 0.75,
       easingFunction: EasingFunction.CUBIC_IN_OUT,
@@ -611,6 +715,7 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
       clampedHour * 60 * 60,
       new JulianDate(),
     );
+    applyEnvironmentForTime(clampedHour);
     viewer.scene.requestRender();
   }
 
@@ -626,8 +731,21 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   const notifySimulationTimeChange = () => {
     const elapsedSeconds = JulianDate.secondsDifference(viewer.clock.currentTime, simulationDayStartJulian);
     const hour = (((elapsedSeconds / 3600) % 24) + 24) % 24;
+    if (viewer.clock.shouldAnimate && Math.abs(hour - lastEnvironmentHour) >= 0.01) {
+      lastEnvironmentHour = hour;
+      applyEnvironmentForTime(hour);
+    }
+    const now = performance.now();
+    if (now - lastSimulationNotify < 500) return;
+    if (Math.abs(hour - lastSimulationHour) < 0.02) return;
+    lastSimulationNotify = now;
+    lastSimulationHour = hour;
     simulationTimeCallbacks.forEach((callback) => callback(hour));
   };
+
+  let lastSimulationNotify = 0;
+  let lastSimulationHour = -1;
+  let lastEnvironmentHour = 14;
 
   viewer.clock.onTick.addEventListener(notifySimulationTimeChange);
 
@@ -640,7 +758,7 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     const rain = new ParticleSystem({
       modelMatrix: Transforms.eastNorthUpToFixedFrame(center),
       emitter: new BoxEmitter(new Cartesian3(24000, 24000, 2200)),
-      emissionRate: 850,
+      emissionRate: performanceProfile.rainRate,
       minimumParticleLife: 2.4,
       maximumParticleLife: 4.2,
       minimumSpeed: 75,
@@ -672,15 +790,17 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     viewer.scene.requestRender();
   }
 
-  applyMode(currentMode);
+  setVisibility(currentMode);
   applyLayer(currentLayer);
   setViewMode(currentViewMode);
 
   return {
     destroy: () => {
-      panHandler.destroy();
+      if (modeFocusTimer !== undefined) window.clearTimeout(modeFocusTimer);
       resizeObserver.disconnect();
       viewer.clock.onTick.removeEventListener(notifySimulationTimeChange);
+      viewer.scene.morphComplete.removeEventListener(restoreParkFocusAfterMorph);
+      poiHandler.destroy();
       rainSystem = null;
       viewer.destroy();
     },
@@ -698,6 +818,10 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
     onSimulationTimeChange: (callback) => {
       simulationTimeCallbacks.add(callback);
       return () => simulationTimeCallbacks.delete(callback);
+    },
+    onPoiSelect: (callback) => {
+      poiCallbacks.add(callback);
+      return () => poiCallbacks.delete(callback);
     },
   };
 }

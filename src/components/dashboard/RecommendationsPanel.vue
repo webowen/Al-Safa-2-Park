@@ -54,6 +54,7 @@ function focus(focusId?: string) {
   max-height: 100%;
   min-height: 0;
   padding-top: 21px;
+  padding-bottom: 12px;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -121,9 +122,9 @@ function focus(focusId?: string) {
 }
 
 .panel-footer {
-  flex: 0 0 51px;
-  height: 51px;
-  min-height: 51px;
+  flex: 0 0 42px;
+  height: 42px;
+  min-height: 42px;
   width: 100%;
   border: 0;
   background: transparent;
@@ -157,27 +158,25 @@ function focus(focusId?: string) {
   }
 
   .panel-footer {
-    flex-basis: 44px;
-    height: 44px;
-    min-height: 44px;
+    flex-basis: 40px;
+    height: 40px;
+    min-height: 40px;
   }
 }
 
 .panel-fade-enter-active,
 .panel-fade-leave-active {
-  transition: opacity .28s ease, transform .28s ease, filter .28s ease;
+  transition: opacity .28s ease, transform .28s ease;
 }
 
 .panel-fade-enter-from {
   opacity: 0;
   transform: translateY(8px);
-  filter: blur(2px);
 }
 
 .panel-fade-leave-to {
   opacity: 0;
   transform: translateY(-6px);
-  filter: blur(2px);
 }
 
 .heading-fade-enter-active,

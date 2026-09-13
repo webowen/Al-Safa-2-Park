@@ -15,16 +15,20 @@
     <div class="metric-label">{{ item.label }}</div>
     <div class="metric-status">
       <StatusDot :tone="item.statusTone" /><span>{{ item.status }}</span>
-      <span v-if="item.chart" class="mini-chart" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span v-if="item.chart" class="mini-chart" aria-hidden="true"><i v-for="height in chartBars" :key="height" :style="{ height: `${height}px` }"></i></span>
     </div>
   </article>
 </template>
 <script setup lang="ts">
 import type { MetricItem } from "../../types/dashboard";
+import { computed } from "vue";
+import { useDashboardStore } from "../../stores/dashboard";
 import AppIcon from "../ui/AppIcon.vue";
 import StatusDot from "../ui/StatusDot.vue";
 defineProps<{ item: MetricItem }>();
 const emit = defineEmits<{ select: [] }>();
+const store = useDashboardStore();
+const chartBars = computed(() => [6, 11, 16, 20].map((base, index) => Math.max(4, base + Math.round(Math.sin(store.liveTick * 1.4 + index) * 4))));
 </script>
 <style scoped>
 .metric-card {
@@ -106,22 +110,6 @@ const emit = defineEmits<{ select: [] }>();
   display: block;
   width: 5px;
   background: #aeb3ba;
-}
-
-.mini-chart i:nth-child(1) {
-  height: 5px;
-}
-
-.mini-chart i:nth-child(2) {
-  height: 10px;
-}
-
-.mini-chart i:nth-child(3) {
-  height: 15px;
-}
-
-.mini-chart i:nth-child(4) {
-  height: 21px;
 }
 
 .tone-gold {
