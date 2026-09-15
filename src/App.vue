@@ -1,5 +1,6 @@
 <template>
-  <main class="app-shell">
+  <ExploreView v-if="isExplore" />
+  <main v-else class="app-shell">
     <div class="cesium-stage-wrap">
       <CesiumScene />
     </div>
@@ -10,6 +11,9 @@
 <script setup lang="ts">
 import CesiumScene from "./components/CesiumScene.vue";
 import DashboardHud from "./components/dashboard/DashboardHud.vue";
+import ExploreView from "./components/ExploreView.vue";
+
+const isExplore = window.location.pathname.replace(/\/$/, "") === "/explore";
 </script>
 
 <style scoped>
