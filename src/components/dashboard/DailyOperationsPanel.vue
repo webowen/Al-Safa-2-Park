@@ -71,6 +71,7 @@
 import { computed, ref } from "vue";
 import { useDashboardStore } from "../../stores/dashboard";
 import { getDashboardModeConfig } from "../../data/dashboardModes";
+import { getLiveAsset, getLiveMetric, getLiveSystem } from "../../data/dashboardLive";
 import AppIcon from "../ui/AppIcon.vue";
 import GlassPanel from "../ui/GlassPanel.vue";
 import StatusDot from "../ui/StatusDot.vue";
@@ -82,22 +83,9 @@ const store = useDashboardStore();
 const collapsed = ref(false);
 const modeConfig = computed(() => getDashboardModeConfig(store.activeMode));
 const sectionTitle = computed(() => (store.activeMode === "events" ? "Live Event Operations" : "Live Operations"));
-const wobble = (seed: string, amount: number) => Math.round((Math.sin(store.liveTick * 1.7 + seed.length * 3.1) * 0.5 + 0.5) * amount);
-function liveMetric(item: any) {
-  if (item.label === "Temperature") return { ...item, value: `${27 + wobble(item.label, 5)}°C` };
-  if (item.label.includes("Visitors") || item.label.includes("Attendance")) return { ...item, value: (390 + wobble(item.label, 100)).toLocaleString() };
-  if (item.label === "Open Issues" || item.label === "Open Tasks") return { ...item, value: String(2 + wobble(item.label, 3)) };
-  return item;
-}
-function liveSystem(item: any) {
-  if (item.label.includes("Lighting")) return { ...item, value: `${96 + wobble(item.label, 4)}%` };
-  return item;
-}
-function liveAsset(item: any) {
-  if (!item.value.includes("%")) return item;
-  const progress = Math.max(1, Math.min(99, item.progress + wobble(item.label, 3) - 1));
-  return { ...item, value: `${progress}%`, progress, stats: item.stats.map((stat: any, index: number) => index === 0 ? { ...stat, value: `${progress}%` } : stat) };
-}
+function liveMetric(item: Parameters<typeof getLiveMetric>[0]) { return getLiveMetric(item, store.liveTick); }
+function liveSystem(item: Parameters<typeof getLiveSystem>[0]) { return getLiveSystem(item, store.liveTick); }
+function liveAsset(item: Parameters<typeof getLiveAsset>[0]) { return getLiveAsset(item, store.liveTick); }
 
 function focus(focusId?: string) {
   if (!focusId) return;
