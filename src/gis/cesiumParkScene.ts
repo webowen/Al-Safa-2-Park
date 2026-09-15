@@ -514,31 +514,39 @@ export async function createCesiumParkScene(container: HTMLElement): Promise<Ces
   addMaintenanceModeGeometry();
 
   if (park.tilesetAssetId) {
-    try {
-      const tileset = await Cesium3DTileset.fromIonAssetId(park.tilesetAssetId, {
+    // Keep the first mobile paint independent from the remote Ion model. The
+    // model is large and may be unavailable on venue Wi-Fi; the globe and
+    // visitor controls should still become usable immediately.
+    void Cesium3DTileset.fromIonAssetId(park.tilesetAssetId, {
         maximumScreenSpaceError: performanceProfile.tilesetSse,
         show: true,
         skipLevelOfDetail: true,
         preferLeaves: false,
         preloadFlightDestinations: false,
         loadSiblings: false,
+      })
+      .then((tileset) => {
+        if (viewer.isDestroyed()) {
+          tileset.destroy();
+          return;
+        }
+        viewer.scene.primitives.add(tileset);
+        parkTileset = tileset;
+        tileset.shadows = ShadowMode.ENABLED;
+        viewer.scene.screenSpaceCameraController.maximumZoomDistance = PARK_MAX_ZOOM;
+        // Do not call viewer.flyTo(tileset) here. The tileset's own bounding
+        // volume is not the park's geographic extent and would override the
+        // configured park-centered camera, often placing the view inside the
+        // model. Keep the camera anchored to the four-corner park coordinates.
+        // Never derive the camera target from the tileset bounding sphere. Ion
+        // assets can include surrounding context and their box center may sit
+        // outside the park's authoritative four corners. The configured park
+        // center remains the sole camera/focus anchor.
+        viewer.scene.requestRender();
+      })
+      .catch((error) => {
+        console.warn("Dubai park tiles not ready, continuing with terrain/globe view.", error);
       });
-
-      viewer.scene.primitives.add(tileset);
-      parkTileset = tileset;
-      tileset.shadows = ShadowMode.ENABLED;
-      viewer.scene.screenSpaceCameraController.maximumZoomDistance = PARK_MAX_ZOOM;
-      // Do not call viewer.flyTo(tileset) here. The tileset's own bounding
-      // volume is not the park's geographic extent and would override the
-      // configured park-centered camera, often placing the view inside the
-      // model. Keep the camera anchored to the four-corner park coordinates.
-      // Never derive the camera target from the tileset bounding sphere. Ion
-      // assets can include surrounding context and their box center may sit
-      // outside the park's authoritative four corners. The configured park
-      // center remains the sole camera/focus anchor.
-    } catch (error) {
-      console.warn("Dubai park tiles not ready, continuing with terrain/globe view.", error);
-    }
   } else {
     console.info("3D Tiles entry is enabled but disabled for now; waiting for a real Dubai park tileset asset id.");
   }
